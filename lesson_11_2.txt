@@ -1,0 +1,164 @@
+-- 1.В базе данных Redis подберите коллекцию для подсчета посещений с определенных IP-адресов.
+
+-- тут нам помогут следующие команды:
+-- https://redis.io/commands/hincrby
+-- https://redis.io/commands/hget
+-- https://redis.io/commands/hgetall
+
+
+-- установим и запустим redis
+ivan@ubuntu-test:~$ sudo nano /etc/redis/redis.conf 
+-- change "supervised no" to "supervised systemd"
+ivan@ubuntu-test:~$ sudo systemctl restart redis.service
+ivan@ubuntu-test:~$ sudo systemctl status redis
+● redis-server.service - Advanced key-value store
+     Loaded: loaded (/lib/systemd/system/redis-server.service; enabled; vendor preset: enabled)
+     Active: active (running) since Tue 2020-12-22 11:23:45 MSK; 4s ago
+       Docs: http://redis.io/documentation,
+             man:redis-server(1)
+    Process: 209816 ExecStart=/usr/bin/redis-server /etc/redis/redis.conf (code=exited, status=0/SUCCESS)
+   Main PID: 209834 (redis-server)
+      Tasks: 4 (limit: 9481)
+     Memory: 2.4M
+     CGroup: /system.slice/redis-server.service
+             └─209834 /usr/bin/redis-server 127.0.0.1:6379
+
+дек 22 11:23:45 ubuntu-test systemd[1]: Starting Advanced key-value store...
+дек 22 11:23:45 ubuntu-test systemd[1]: redis-server.service: Can't open PID file /run/redis/redis-server.pid (yet?) after start: Operation not permitted
+дек 22 11:23:45 ubuntu-test systemd[1]: Started Advanced key-value store.
+ivan@ubuntu-test:~$ redis-cli
+127.0.0.1:6379>
+127.0.0.1:6379> HINCRBY addr "1.1.1.1" 1
+(integer) 1
+127.0.0.1:6379> HINCRBY addr "1.1.1.2" 1
+(integer) 1
+127.0.0.1:6379> HINCRBY addr "1.1.1.3" 2
+(integer) 2
+127.0.0.1:6379> HGET addr "1.1.1.1"
+"1"
+127.0.0.1:6379> HGET addr "1.1.1.3"
+"2"
+127.0.0.1:6379> HGETALL addr
+1) "1.1.1.1"
+2) "1"
+3) "1.1.1.2"
+4) "1"
+5) "1.1.1.3"
+6) "2"
+127.0.0.1:6379>
+
+
+-- 2.При помощи базы данных Redis решите задачу поиска имени пользователя по электронному адресу и наоборот, поиск электронного адреса пользователя по его имени.
+-- в любом случае, придется как-то отслеживать консистентность данных
+-- способ 1, возможно не совсем корректный
+127.0.0.1:6379> HSET user_emails "1" "pert@pert.com"
+(integer) 1
+127.0.0.1:6379> HSET user_names "1" "petr"
+(integer) 1
+127.0.0.1:6379> HSET user_emails "2" "mark@mark.com"
+(integer) 1
+127.0.0.1:6379> HSET user_names "2" "mark"
+(integer) 1
+127.0.0.1:6379> GET user_emails
+(error) WRONGTYPE Operation against a key holding the wrong kind of value
+127.0.0.1:6379> HGET user_emails
+(error) ERR wrong number of arguments for 'hget' command
+127.0.0.1:6379> HGETALL user_emails
+1) "1"
+2) "pert@pert.com"
+3) "2"
+4) "mark@mark.com"
+127.0.0.1:6379> HMGET user_emails
+(error) ERR wrong number of arguments for 'hmget' command
+127.0.0.1:6379> HMGET user_emails "1"
+1) "pert@pert.com"
+127.0.0.1:6379> KEYS user*
+1) "user_names"
+2) "user_emails"
+127.0.0.1:6379> HGET user_names "1"
+"petr"
+127.0.0.1:6379> HGET user_emails "1"
+"pert@pert.com"
+127.0.0.1:6379>
+
+
+-- способ 2, но в нем так же придется поддерживать консистентность самостоятельно
+127.0.0.1:6379> HSET user_email "petr" "petr@petr.com"
+(integer) 1
+127.0.0.1:6379> HSET user_email "mark" "mark@mark.com"
+(integer) 1
+127.0.0.1:6379> HSET email_user "petr@petr.com" "petr"
+(integer) 1
+127.0.0.1:6379> HSET email_user "mark@mark.com" "mark"
+(integer) 1
+127.0.0.1:6379>
+127.0.0.1:6379> HGET user_email "petr"
+"petr@petr.com"
+127.0.0.1:6379> HGET email_user "mark@mark.com"
+"mark"
+127.0.0.1:6379>
+
+
+
+
+-- 3.Организуйте хранение категорий и товарных позиций учебной базы данных shop в СУБД MongoDB.
+-- catalogs
+-- Field|Type           |Null|Key|Default|Extra         |
+-- -----|---------------|----|---|-------|--------------|
+-- id   |bigint unsigned|NO  |PRI|       |auto_increment|
+-- name |varchar(255)   |YES |UNI|       |              |
+
+-- products
+-- Field      |Type           |Null|Key|Default          |Extra                                        |
+-- -----------|---------------|----|---|-----------------|---------------------------------------------|
+-- id         |bigint unsigned|NO  |PRI|                 |auto_increment                               |
+-- name       |varchar(255)   |YES |   |                 |                                             |
+-- description|text           |YES |   |                 |                                             |
+-- price      |decimal(11,2)  |YES |   |                 |                                             |
+-- catalog_id |bigint unsigned|YES |MUL|                 |                                             |
+-- created_at |datetime       |YES |   |CURRENT_TIMESTAMP|DEFAULT_GENERATED                            |
+-- updated_at |datetime       |YES |   |CURRENT_TIMESTAMP|DEFAULT_GENERATED on update CURRENT_TIMESTAMP|
+
+ivan@ubuntu-test:~$ mongo
+MongoDB shell version v3.6.8
+connecting to: mongodb://127.0.0.1:27017
+Implicit session: session { "id" : UUID("c4270dde-3ad5-48cb-b15a-00a24569312b") }
+MongoDB server version: 3.6.8
+Welcome to the MongoDB shell.
+For interactive help, type "help".
+For more comprehensive documentation, see
+        http://docs.mongodb.org/
+Questions? Try the support group
+        http://groups.google.com/group/mongodb-user
+Server has startup warnings:
+2020-12-22T11:17:46.557+0300 I STORAGE  [initandlisten]
+2020-12-22T11:17:46.557+0300 I STORAGE  [initandlisten] ** WARNING: Using the XFS filesystem is strongly recommended with the WiredTiger storage engine
+2020-12-22T11:17:46.557+0300 I STORAGE  [initandlisten] **          See http://dochub.mongodb.org/core/prodnotes-filesystem
+2020-12-22T11:17:47.058+0300 I CONTROL  [initandlisten]
+2020-12-22T11:17:47.058+0300 I CONTROL  [initandlisten] ** WARNING: Access control is not enabled for the database.
+2020-12-22T11:17:47.058+0300 I CONTROL  [initandlisten] **          Read and write access to data and configuration is unrestricted.
+2020-12-22T11:17:47.058+0300 I CONTROL  [initandlisten]
+>
+> db.catalogs.insert({name: "cpu"})
+WriteResult({ "nInserted" : 1 })
+> db.catalogs.insert({name: "motherboard"})
+WriteResult({ "nInserted" : 1 })
+>
+> db.catalogs.find()
+{ "_id" : ObjectId("5fe1d15c4961b53ed8cc42c8"), "name" : "cpu" }
+{ "_id" : ObjectId("5fe1d1614961b53ed8cc42c9"), "name" : "motherboard" }
+>
+>
+> db.products.insert({catalog_id: ObjectId("5fe1d15c4961b53ed8cc42c8"), name: "intel xeon 9999", description: "intel xeon fastest cpu", price: 134562})
+WriteResult({ "nInserted" : 1 })
+> db.products.insert({catalog_id: ObjectId("5fe1d15c4961b53ed8cc42c9"), name: "asus 555", description: "asus 555 motherboard", price: 1332})
+WriteResult({ "nInserted" : 1 })
+>
+> db.products.find()
+{ "_id" : ObjectId("5fe1d20b4961b53ed8cc42ca"), "catalog_id" : ObjectId("5fe1d15c4961b53ed8cc42c8"), "name" : "intel xeon 9999", "description" : "intel xeon fastest cpu", "price" : 134562 }
+{ "_id" : ObjectId("5fe1d25c4961b53ed8cc42cb"), "catalog_id" : ObjectId("5fe1d15c4961b53ed8cc42c9"), "name" : "asus 555", "description" : "asus 555 motherboard", "price" : 1332 }
+>
+> db.products.find({catalog_id: ObjectId("5fe1d15c4961b53ed8cc42c8")})
+{ "_id" : ObjectId("5fe1d20b4961b53ed8cc42ca"), "catalog_id" : ObjectId("5fe1d15c4961b53ed8cc42c8"), "name" : "intel xeon 9999", "description" : "intel xeon fastest cpu", "price" : 134562 }
+>
+
